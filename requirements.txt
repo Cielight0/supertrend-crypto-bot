@@ -3,3 +3,4 @@ schedule
 ccxt
 pandas
 numpy
+talib
