@@ -4,7 +4,7 @@ import schedule
 import pandas as pd
 import talib
 
-pd.set_option('display.max_rows', None, "display.max_columns", None)
+pd.set_option('display.max_rows', None, "display.max_columns", None, 'display.width', 320)
 
 import warnings
 
