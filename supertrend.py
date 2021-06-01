@@ -91,9 +91,6 @@ in_position = False
 
 def check_buy_sell_signals(df):
     global in_position
-    rsi(df,14)
-    adx(df,14)
-    psar(df)
     print("checking for buy and sell signals")
     print(df.tail(5))
     last_row_index = len(df.index) - 1
@@ -124,7 +121,9 @@ def run_bot():
     df = pd.DataFrame(bars[:-1], columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     supertrend_data = supertrend(df)
-
+    rsi(df)
+    adx(df)
+    psar(df)
     check_buy_sell_signals(supertrend_data)
 
 schedule.every(10).seconds.do(run_bot)
