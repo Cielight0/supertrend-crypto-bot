@@ -2,9 +2,9 @@ import ccxt
 import config
 import schedule
 import pandas as pd
-import talib
-
 pd.set_option('display.max_rows', None, "display.max_columns", None, 'display.width', 320)
+import talib
+import pprint
 
 import warnings
 
@@ -13,6 +13,8 @@ warnings.filterwarnings('ignore')
 import numpy as np
 from datetime import datetime
 import time
+
+Trade_quantity = 0.05
 
 exchange = ccxt.binance({
     "apiKey": config.BINANCE_API_KEY,
@@ -34,6 +36,7 @@ def rsi(df, RSI_PERIOD =14):
     np_closes = df['close']
     rsi = talib.RSI(np_closes, RSI_PERIOD)
     df['rsi']=rsi
+
     return rsi
 
 def adx(df, ADX_PERIOD=14):
@@ -42,6 +45,7 @@ def adx(df, ADX_PERIOD=14):
     close = df['close']
     adx = talib.ADX(high, low, close, ADX_PERIOD)
     df['adx'] = adx
+
     return adx
 
 def psar(df, acceleration=0.02,maximum=0.2):
@@ -49,6 +53,7 @@ def psar(df, acceleration=0.02,maximum=0.2):
     low = df['low']
     psar = talib.SAR(high, low, acceleration, maximum)
     df['psar'] = psar
+
     return psar
 
 
@@ -85,9 +90,7 @@ def supertrend(df, period=7, atr_multiplier=3):
     #print(df)
     return df
 
-
 in_position = False
-
 
 def check_buy_sell_signals(df):
     global in_position
@@ -99,7 +102,7 @@ def check_buy_sell_signals(df):
     if not df['in_uptrend'][previous_row_index] and df['in_uptrend'][last_row_index]:
         print("changed to uptrend, buy")
         if not in_position:
-            order = exchange.create_market_buy_order('ETH/BUSD', 0.05)
+            order = exchange.create_market_buy_order('ETH/BUSD', Trade_quantity)
             print(order)
             in_position = True
         else:
@@ -108,14 +111,31 @@ def check_buy_sell_signals(df):
     if df['in_uptrend'][previous_row_index] and not df['in_uptrend'][last_row_index]:
         if in_position:
             print("changed to downtrend, sell")
-            order = exchange.create_market_sell_order('ETH/BUSD', 0.05)
+            order = exchange.create_market_sell_order('ETH/BUSD', Trade_quantity)
             print(order)
             in_position = False
         else:
             print("You aren't in position, nothing to sell")
 
+#print and return the balance eg(balance('BUSD','free')
+def balance(asset, type='free'):
+    print(asset," : ",exchange.fetch_balance().get(asset).get(type))
+
+    return exchange.fetch_balance().get(asset).get(type)
+
+#Check if you are already on position
+def position():
+    global in_position
+    if balance('ETH') >= Trade_quantity:
+        in_position = True
+    else:
+        in_position = False
+
+    print(in_position)
+    return in_position
 
 def run_bot():
+    position()
     print(f"Fetching new bars for {datetime.now().isoformat()}")
     bars = exchange.fetch_ohlcv('ETH/BUSD', timeframe='1m', limit=100)
     df = pd.DataFrame(bars[:-1], columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
