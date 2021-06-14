@@ -2,7 +2,7 @@ import ccxt
 import config
 import schedule
 import pandas as pd
-pd.set_option('display.max_rows', None, "display.max_columns", None, 'display.width', 320)
+pd.set_option('display.max_rows', None)
 import talib
 import pprint
 
@@ -15,6 +15,7 @@ from datetime import datetime
 import time
 
 Trade_quantity = 0.05
+pnl = 0
 
 exchange = ccxt.binance({
     "apiKey": config.BINANCE_API_KEY,
@@ -32,12 +33,14 @@ def tr(data):
 
     return tr
 
+
 def rsi(df, RSI_PERIOD =14):
     np_closes = df['close']
     rsi = talib.RSI(np_closes, RSI_PERIOD)
     df['rsi']=rsi
 
     return rsi
+
 
 def adx(df, ADX_PERIOD=14):
     high = df['high']
@@ -48,12 +51,13 @@ def adx(df, ADX_PERIOD=14):
 
     return adx
 
+
 def psar(df, acceleration=0.02,maximum=0.2):
     high = df['high']
     low = df['low']
     psar = talib.SAR(high, low, acceleration, maximum)
     df['psar'] = psar
-
+    
     return psar
 
 
@@ -64,7 +68,7 @@ def atr(data, period):
     return atr
 
 
-def supertrend(df, period=7, atr_multiplier=3):
+def supertrend(df, period=7, atr_multiplier=7):
     hl2 = (df['high'] + df['low']) / 2
     df['atr'] = atr(df, period)
     df['upperband'] = hl2 + (atr_multiplier * df['atr'])
@@ -94,6 +98,8 @@ in_position = False
 
 def check_buy_sell_signals(df):
     global in_position
+    global pnl
+    global last_bought
     print("checking for buy and sell signals")
     print(df.tail(5))
     last_row_index = len(df.index) - 1
@@ -103,25 +109,29 @@ def check_buy_sell_signals(df):
         print("changed to uptrend, buy")
         if not in_position:
             order = exchange.create_market_buy_order('ETH/BUSD', Trade_quantity)
+            pnl -= order['cost']
             print(order)
-            in_position = True
+            print("Buy order")
         else:
             print("already in position, nothing to do")
-
+    
     if df['in_uptrend'][previous_row_index] and not df['in_uptrend'][last_row_index]:
         if in_position:
             print("changed to downtrend, sell")
             order = exchange.create_market_sell_order('ETH/BUSD', Trade_quantity)
             print(order)
-            in_position = False
+            pnl += order['cost']
+            print("Sell order")
         else:
             print("You aren't in position, nothing to sell")
 
+            
 #print and return the balance eg(balance('BUSD','free')
 def balance(asset, type='free'):
     print(asset," : ",exchange.fetch_balance().get(asset).get(type))
 
     return exchange.fetch_balance().get(asset).get(type)
+
 
 #Check if you are already on position
 def position():
@@ -134,21 +144,34 @@ def position():
     print(in_position)
     return in_position
 
+class dataframe():
+    def tf(tf):
+        print("Class Dataframe ",tf,"m")
+        tf = str(tf)+"m"
+        bars = exchange.fetch_ohlcv('ETH/BUSD', timeframe=tf, limit=100)
+        df = pd.DataFrame(bars[:-1], columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        supertrend_data = supertrend(df,7,4)
+        rsi(df)
+        adx(df)
+        psar(df)
+        check_buy_sell_signals(supertrend_data)
+    
 def run_bot():
+    global pnl
     position()
-    print(f"Fetching new bars for {datetime.now().isoformat()}")
-    bars = exchange.fetch_ohlcv('ETH/BUSD', timeframe='1m', limit=100)
-    df = pd.DataFrame(bars[:-1], columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    supertrend_data = supertrend(df)
-    rsi(df)
-    adx(df)
-    psar(df)
-    check_buy_sell_signals(supertrend_data)
+    #print(f"Fetching new bars for {datetime.now().isoformat()}")
+    dataframe.tf(15)
+    print("PNL = ", pnl)
 
-schedule.every(10).seconds.do(run_bot)
+
+schedule.every(60).seconds.do(run_bot)
 
 while True:
+    try:
+        schedule.run_pending()
+        time.sleep(1)
 
-    schedule.run_pending()
-    time.sleep(1)
+    except Exception as e:
+        print("an exception occured - {}".format(e))
+        schedule.every(60).seconds.do(run_bot)
