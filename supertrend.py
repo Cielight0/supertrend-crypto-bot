@@ -52,11 +52,12 @@ def adx(df, ADX_PERIOD=14):
     return adx
 
 
-def psar(df, acceleration=0.02,maximum=0.2):
+def psar(df, strategy, index):
+    #e.g : real = SAR(high, low, acceleration=0, maximum=0)
     high = df['high']
     low = df['low']
-    psar = talib.SAR(high, low, acceleration, maximum)
-    df['psar'] = psar
+    psar = talib.SAR(high, low, strategy['acceleration'], strategy['maximum'])
+    df['psar'+str(index)] = psar
     
     return psar
 
@@ -64,9 +65,17 @@ def psar(df, acceleration=0.02,maximum=0.2):
 def atr(data, period):
     data['tr'] = tr(data)
     atr = data['tr'].rolling(period).mean()
-
+    
     return atr
 
+def epsar(df,strategy):
+    #e.g : real = SAREXT(high, low, startvalue=0, offsetonreverse=0, accelerationinitlong=0, accelerationlong=0, accelerationmaxlong=0, accelerationinitshort=0, accelerationshort=0, accelerationmaxshort=0)
+    high = df['high']
+    low = df['low']
+    epsar = talib.SAREXT(high, low, strategy['start'], 0, strategy['acceleration'], strategy['acceleration'], strategy['maximum'], strategy['acceleration'], strategy['acceleration'], strategy['maximum'])
+    df['epsar'] = epsar
+    
+    return epsar
 
 def supertrend(df, period=7, atr_multiplier=7):
     hl2 = (df['high'] + df['low']) / 2
@@ -99,11 +108,78 @@ in_position = False
 def check_buy_sell_signals(df):
     global in_position
     global pnl
+    global strategy
     global last_bought
     print("checking for buy and sell signals")
     print(df.tail(5))
     last_row_index = len(df.index) - 1
     previous_row_index = last_row_index - 1
+
+    shortIndicators = {}
+    longIndicators = {}
+
+    #if position false
+    #check RSI 
+    if df['rsi'][last_row_index] >= 70 :
+        longIndicators["rsi"] = True
+        shortIndicators["rsi"] = False
+    elif df['rsi'][last_row_index] <= 30 :
+        shortIndicators["rsi"] = True
+        longIndicators["rsi"] = False
+    else:
+        shortIndicators["rsi"] = False
+        longIndicators["rsi"] = False
+    
+    #check PSARs
+    for idx, psarStrat in enumerate(strategy['psar']):
+        if df['psar'+str(idx)][last_row_index] < df['close'][last_row_index] :
+            longIndicators["psar"+str(idx)] = True
+            shortIndicators["psar"+str(idx)] = False
+        else :
+            longIndicators["psar"+str(idx)] = False
+            shortIndicators["psar"+str(idx)] = True
+
+    #check SUPERTREND
+    if df['in_uptrend'][last_row_index]:
+        longIndicators["supertrend"] = True
+        shortIndicators["supertrend"] = False
+    else :
+        longIndicators["supertrend"] = False
+        shortIndicators["supertrend"] = True
+    
+    #check ADX
+
+    if df['adx'][last_row_index] >= 40 :
+        shortIndicators["adx"] = True
+        longIndicators["adx"] = True
+    else:
+        shortIndicators["adx"] = False
+        longIndicators["adx"] = False
+
+    # lenadx = 14 #input(14, minval=1, title="DI Length")
+    # lensig = 14 #(14, title="ADX Smoothing", minval=1, maxval=50)
+    # limadx = 18 #(18, minval=1, title="ADX MA Active")
+    # up = df['high'].diff()
+    # down = df['low'].diff()
+    # trur = talib.EMA(df['close'], lenadx)
+    # plus = 100 * talib.EMA(up if (up > down).any() and (up > 0).any() else 0, lenadx) / trur
+    # minus = 100 * talib.EMA(down if (down > up).any() and (down > 0).any() else 0, lenadx) / trur
+    # sum = plus + minus
+    # adx = 100 * talib.EMA((plus - minus) / 1 if (sum == 0).any() else sum, lensig)
+    # if (adx > limadx).any() and (plus > minus).any():
+    #     shortIndicators["adx"] = True
+    #     longIndicators["adx"] = False
+    # else:
+    #     if (adx > limadx).any() and (plus < minus).any():
+    #         shortIndicators["adx"] = True
+    #         longIndicators["adx"] = False
+    #     else:
+    #        shortIndicators["adx"] = False
+    #        longIndicators["adx"] = False
+
+    
+    print("short",shortIndicators)
+    print("long",longIndicators)
 
     if not df['in_uptrend'][previous_row_index] and df['in_uptrend'][last_row_index]:
         print("changed to uptrend, buy")
@@ -145,27 +221,60 @@ def position():
     return in_position
 
 class dataframe():
-    def tf(tf):
-        print("Class Dataframe ",tf,"m")
-        tf = str(tf)+"m"
+    def initDatas(strategy):
+        tf = strategy['timeframe']
+        print("Class Dataframe ",tf)
         bars = exchange.fetch_ohlcv('ETH/BUSD', timeframe=tf, limit=100)
         df = pd.DataFrame(bars[:-1], columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        supertrend_data = supertrend(df,7,4)
-        rsi(df)
-        adx(df)
-        psar(df)
-        check_buy_sell_signals(supertrend_data)
+        supertrend(df,strategy['supertrend']['period'],strategy['supertrend']['atr_multiplier'])
+        rsi(df,strategy['rsi']['rsi_period'])
+        adx(df, strategy['adx']['adx_period'])
+        epsar(df, strategy['epsar'])
+        for idx, psarStrat in enumerate(strategy['psar']):
+            psar(df, psarStrat, idx)
+        check_buy_sell_signals(df)
+
     
 def run_bot():
-    global pnl
+    global pnl, strategy
     position()
+
+    strategy = {
+        "timeframe":"1h",
+        "rsi":{
+            "rsi_period":14
+        },
+        "adx":{
+            "adx_period":14
+        },
+        "psar":[
+            {
+                "acceleration":0.02,
+                "maximum":0.2
+            },
+            {
+                "acceleration":0.01,
+                "maximum":0.2
+            }
+        ],
+        "supertrend":{
+            "period":7, 
+            "atr_multiplier":4
+        },
+        "epsar":{
+            "start":0.015,
+            "acceleration":0.01,
+            "maximum":0.2
+        }
+    }
+
     #print(f"Fetching new bars for {datetime.now().isoformat()}")
-    dataframe.tf(15)
+    dataframe.initDatas(strategy)
     print("PNL = ", pnl)
 
 
-schedule.every(60).seconds.do(run_bot)
+schedule.every(5).seconds.do(run_bot)
 
 while True:
     try:
@@ -174,4 +283,4 @@ while True:
 
     except Exception as e:
         print("an exception occured - {}".format(e))
-        schedule.every(60).seconds.do(run_bot)
+        schedule.every(1).seconds.do(run_bot)
